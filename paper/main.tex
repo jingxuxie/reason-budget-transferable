@@ -1,0 +1,395 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern,microtype,amsmath,amssymb,amsthm,mathtools}
+\usepackage{graphicx,booktabs,array,algorithm,algpseudocode}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage[hidelinks]{hyperref}
+\usepackage{enumitem}
+\setlist{nosep,leftmargin=*}
+\graphicspath{{../figures/}}
+\newtheorem{theorem}{Theorem}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}\newtheorem{definition}[theorem]{Definition}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Pp}{\mathbb{P}}
+\newcommand{\ind}{\mathbf{1}}
+\newcommand{\eps}{\varepsilon}
+\newcommand{\KL}{\operatorname{KL}}
+\newcommand{\kl}{\operatorname{kl}}
+\newcommand{\argmax}{\operatorname*{arg\,max}}
+\newcommand{\argmin}{\operatorname*{arg\,min}}
+\title{Budget-Transferable Process Values:\\Compact Decisions and the Cost of Capped Evidence}
+\author{Anonymous research draft}
+\date{16 September 2026}
+\begin{document}
+\maketitle
+\begin{abstract}
+A reasoning continuation that is best at a short deadline need not be best at a long one. We study the information needed to select among a fixed finite menu of continuations across all supported compute budgets. Success-time distributions are established objects; our focus is the complexity and cost of the decisions they induce. For monotone verified-success profiles, we prove that a deterministic $\eps$-optimal selector needs at most $O(1/\eps)$ contiguous budget regimes, independently of the horizon and menu size, and give a matching-order two-candidate construction. We derive exact rectangular-confidence certificates and a minimum-regime compiler. To learn these decisions, Backward Deadline Racing retires certified deadlines from largest to smallest. This ordering makes censored observations prefixes of independent rollout streams, yielding a horizon-free rollout-count guarantee from standard empirical-CDF concentration. Against a matched full-horizon race, a coupling preserves acquisition decisions and sample counts while weakly reducing executed rollout work. A complementary lower bound shows that one-regime policies can still require $\Omega(H/\eps^2)$ work. CPU experiments include 360 completed certification runs, 245,760 executed symbolic proof rollouts, and learned critics on 300 held-out symbolic menus. Capping saves 22.3\% on crossing profiles and 69.4\% on rapidly saturating profiles, but only 2.7\% on symbolic proofs after early terminal failure is charged correctly. Standard hazard prediction is the strongest learned baseline. The results distinguish compact budget transfer from cheap evidence acquisition without claiming general language-model or adaptive-search guarantees.
+\end{abstract}
+
+\section{Introduction}
+Test-time reasoning allocates additional computation to candidate solutions, intermediate states, or search nodes. Process supervision and adaptive inference make intermediate-value estimates relevant to these decisions \citep{lightman2023,snell2024,li2026budget}. However, ``promising'' is ambiguous without a deadline. A prefix that succeeds quickly with probability $0.6$ can be preferable to one that succeeds after ten steps with probability $0.95$ when only one step remains. Neither eventual-success calibration nor a single fixed ranking resolves this reversal.
+
+Predicting the distribution of time to verified success is a natural response, but is not itself a new proposal: survival value learning explicitly models time-to-goal and censored trajectories \citep{tiofack2026}. Runtime-distribution preferences and utility-aware algorithm configuration also provide close foundations \citep{graham2023preferences,graham2023utilitarian,graham2025practical}. We ask a more specific question: \emph{how much of a family of success profiles must be retained to choose well across deadlines, and how much evidence must be collected to learn that decision object?}
+
+Our answer separates three resources that are easily conflated. The first is the number of budget regimes in a deployed selector. The second is the number of independent continuation trials used to learn it. The third is the actual computation executed by those trials, including early unsuccessful termination. A compact selector need not be cheap to learn; shorter trial caps need not reduce the number of trials; and an apparent compute gain can disappear when terminal failure is accounted for correctly.
+
+We make four connected contributions within a fixed-menu, fixed-continuation model. First, deterministic deadline selectors have worst-case interval complexity $\Theta(\min\{H,1/\eps\})$, although exact optimal choices can switch at every deadline. Second, monotone confidence bands admit exact pointwise robust-regret certificates and an optimal interval compiler. Third, a backward sampling schedule gives a prefix-safe use of standard DKW confidence bounds under adaptive censoring and a pathwise work comparison with matched full-horizon sampling. Fourth, a two-world lower bound separates representation size from learning work. The confidence inequality, best-arm comparison principle, survival representation, and use of capped trials are established building blocks; the intended distinction is their deadline-uniform decision formulation and the backward-coupling analysis.
+
+\paragraph{Scope.} A menu is fixed before data collection; one candidate is selected and then continued under a fixed procedure. Success is exactly verified and retained. We do not analyze changing the continuation policy, unrestricted tree replanning, noisy verifiers, or distribution-free transfer of a neural critic to unseen states. Our compiler compresses a \emph{menu-specific decision schedule}, not a universal per-prefix embedding. These restrictions are essential to interpreting both the proofs and experiments.
+
+\section{Model and decision objects}\label{sec:model}
+There are $m$ candidates and integer deadlines $b\in[H]=\{1,\ldots,H\}$. Candidate $i$ has independent repeated continuation outcomes with first verified-success time $T_i\in\mathbb{N}\cup\{\infty\}$. Define
+\begin{equation}
+ F_i(b)=\Pp(T_i\le b),\qquad E(b)=\max_{i\in[m]}F_i(b).
+\end{equation}
+Every $F_i$ is nondecreasing and bounded in $[0,1]$. A deterministic selector $\sigma:[H]\to[m]$ has regret
+\begin{equation}
+ R_\sigma(b)=E(b)-F_{\sigma(b)}(b),\qquad R_\infty(\sigma)=\max_{b\in[H]}R_\sigma(b).
+\end{equation}
+A \emph{regime} is a contiguous interval on which one candidate is selected. We count regimes, not representation bits: storing $K$ interval endpoints and candidate indices uses $O(K(\log H+\log m))$ bits in a direct encoding. Let $K_\eps(F)$ be the smallest number of such intervals among selectors with $R_\infty\le\eps$.
+
+\paragraph{Trial interface and actual work.} A continuation can terminate unsuccessfully before its cap. Accordingly, let $A_i$ be its termination time, including success or detectable terminal failure. On success, $A_i=T_i$; on terminal failure, $T_i=\infty$ but $A_i$ may be finite. A cap $c$ is declared before the trial. The work is
+\begin{equation}\label{eq:work}
+ W_i(c)=\min\{A_i,c\},
+\end{equation}
+and the trial reports success time if success occurs by $c$, otherwise a no-success observation, with an early-failure flag when applicable. For every $b\le c$, the label $\ind\{T_i\le b\}$ is available. Our learner conservatively does not pool observations at $b>c$, even when a particular early outcome logically determines them. Independent potential streams $(T_{i,n},A_{i,n})_{n\ge1}$ support adaptive candidate choices.
+
+The alternative cost $\min\{T_i,c\}$ is correct only when unsuccessful continuations remain active until the cap. We use that model for stochastic stalled-failure families, but not for the executable symbolic benchmark. Prefix generation, feature extraction, and controller arithmetic are outside the rollout-work metric and are reported separately from runtime; our work savings are not wall-clock speedup claims.
+
+\section{When a ranking suffices, and when regimes are necessary}
+\begin{proposition}[Fixed-ranking boundary]\label{prop:ranking}
+For a given full menu, a constant optimal selector exists exactly when $\bigcap_b\argmax_iF_i(b)$ is nonempty. A single total ranking that selects an optimal candidate for every submenu and every deadline exists exactly when every pair admits a consistent pointwise dominance ordering. If two candidates have opposite margins $d_1,d_2>0$ at two deadlines, every deterministic constant choice on that pair incurs worst-deadline regret at least $\min\{d_1,d_2\}$. A budget-independent random mixture has minimax regret $d_1d_2/(d_1+d_2)$ on those two deadlines.
+\end{proposition}
+This statement concerns a scalar used to rank candidates, not an unrestricted real-valued encoding with an arbitrary decoder. Crossing pairs can be irrelevant in a larger menu if a third candidate dominates both. Conversely, families such as $F_i(b)=1-\exp[-a_i g(b)]$, for a common nondecreasing nonnegative $g$, admit a common ranking by $a_i$.
+
+\begin{theorem}[Tight-order deterministic regime complexity]\label{thm:complexity}
+For every finite menu of monotone success profiles and $\eps\in(0,1)$,
+\begin{equation}\label{eq:complexity}
+ K_\eps(F)\le\min\{H,1+\lfloor1/\eps\rfloor\}.
+\end{equation}
+For $0<\eps\le1/4$ and any $H$, two candidates suffice to force at least $\min\{H,\lfloor1/(2\eps)\rfloor\}$ regimes.
+\end{theorem}
+The upper construction keeps an envelope-maximizing candidate until its regret exceeds $\eps$. Each switch requires the monotone envelope to increase by more than $\eps$ since the previous switch. The lower construction alternates jumps of height $2\eps$, forcing a different deterministic candidate at consecutive deadlines. Thus approximation can simplify the \emph{decision} even when exact rankings change repeatedly. The lower construction is deterministic: at gap exactly $2\eps$, an equal randomized mixture can be $\eps$-optimal.
+
+\begin{figure}[t]
+\centering\includegraphics[width=.78\linewidth]{alternating_profiles.pdf}
+\caption{A two-candidate staircase realizes the lower-bound mechanism. Crossing success profiles force alternating deterministic decisions. Approximate interval complexity is controlled by probability variation, not by the number of possible deadlines alone.}
+\label{fig:alternating}
+\end{figure}
+
+\begin{proposition}[Conditional estimation transfer]\label{prop:transfer}
+If $\max_{i,b}|\widehat F_i(b)-F_i(b)|\le\eta$ and $\widehat\sigma$ is $\alpha$-optimal for $\widehat F$, then $R_\infty(\widehat\sigma)\le\alpha+2\eta$.
+\end{proposition}
+This elementary inequality transfers a representation guarantee to estimated profiles. It does not provide a generalization bound for a learned critic: obtaining $\eta$ on unseen prefixes is a separate statistical problem.
+
+\section{Exact robust certificates and an optimal compiler}
+Let $L_i,U_i$ be nondecreasing functions with $0\le L_i\le U_i\le1$. Consider the uncertainty class $\mathcal C$ of all monotone profiles satisfying these bands, with no coupling across different candidates. Define
+\begin{equation}\label{eq:gap}
+ g_i(b)=\left[\max_{j\ne i}U_j(b)-L_i(b)\right]_+,
+\end{equation}
+with $g_1\equiv0$ when $m=1$.
+
+\begin{theorem}[Exact certificate and minimum-regime compilation]\label{thm:compiler}
+For every candidate and deadline,
+\begin{equation}
+ g_i(b)=\sup_{F\in\mathcal C}\left\{\max_jF_j(b)-F_i(b)\right\}.
+\end{equation}
+For a fixed selector, the worst regret over $\mathcal C$ is $\max_bg_{\sigma(b)}(b)$. If every deadline has at least one candidate with $g_i(b)\le\eps$, a longest-feasible-prefix greedy compiler returns a selector with the fewest regimes among all selectors certified by these bands. Compilation takes $O(mH)$ time.
+\end{theorem}
+The compiler maintains the intersection of feasible candidate sets across the current interval. It extends the interval until that intersection would become empty, emits any surviving candidate for the completed interval, and restarts. This is exact for any feasibility matrix, not just monotone bands. Excluding the selected candidate from the competitor maximum in \eqref{eq:gap} is important: including it charges the candidate for uncertainty in its own value, even when that uncertainty cannot induce regret against a competitor.
+
+These are rectangular-band certificates. Extra structural or joint-distribution constraints can give tighter certificates. Also, the number of regimes certified by noisy bands need not obey \eqref{eq:complexity} without an uncertainty margin. If all band widths are at most $w<\eps$, midpoint profiles and an $(\eps-w)$-optimal lazy selector yield a certified $O(1/(\eps-w))$-regime schedule; Appendix~\ref{app:compiler} gives the argument.
+
+\section{Backward Deadline Racing}\label{sec:racing}
+We now collect evidence only where it can change an uncertified decision. Bounds are intersected over observation times and closed under monotonicity. Thus lower bounds never decrease, upper bounds never increase, and retired deadlines never reopen.
+
+\begin{algorithm}[t]
+\caption{Backward Deadline Racing (BDR)}\label{alg:bdr}
+\begin{algorithmic}[1]
+\Require $m,H,\eps,\delta$; initialize $L_i(b)=0$, $U_i(b)=1$
+\While{some deadline is uncertified}
+\State $c\gets\max\{b:\min_i g_i(b)>\eps\}$
+\State $p\gets\argmax_i L_i(c)$ \Comment{lower-bound leader}
+\State $q\gets\argmax_{j\ne p}U_j(c)$ \Comment{upper-bound challenger}
+\State $i\gets\argmax_{j\in\{p,q\}}[U_j(c)-L_j(c)]$
+\State Run an independent continuation of $i$ with declared cap $c$
+\State Update labels only at $b\le c$; intersect and monotonize bands
+\EndWhile
+\State \Return minimum-regime compiler applied to $\{i:g_i(b)\le\eps\}$
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Prefix-safe concentration under adaptive caps}
+Let $n_i(b)$ be the number of candidate-$i$ trials whose declared caps were at least $b$, and $\widehat F_i(b)$ the empirical success frequency among those trials. For $n\ge1$, use
+\begin{equation}\label{eq:radius}
+ r_n=\sqrt{\frac{\log(\pi^2mn^2/(3\delta))}{2n}}.
+\end{equation}
+At zero samples the raw band is $[0,1]$; otherwise it is $[\widehat F_i(b)-r_{n_i(b)},\widehat F_i(b)+r_{n_i(b)}]\cap[0,1]$. The DKW--Massart inequality is standard \citep{massart1990}. Its valid use after censoring is the relevant design issue here.
+
+\begin{lemma}[Backward eligibility is an iid prefix]\label{lem:prefix}
+BDR's declared caps are nonincreasing. For any candidate and deadline, eligible observations form an initial prefix of that candidate's independent potential success-time stream. With probability at least $1-\delta$, every raw band, and hence every intersected monotone band, covers the true profiles at all deadlines and every update.
+\end{lemma}
+The proof uses the empirical-CDF inequality over all deadlines and a union bound over candidate and sample count. There is no $\log H$ factor. The claim does \emph{not} extend to arbitrary adaptive cap sequences: selecting which completed observations enter a deadline estimate can bias it. The implementation rejects increasing declared caps.
+
+\begin{theorem}[Certified termination]\label{thm:racing}
+Assume $m\ge2$, $\eps\in(0,1)$, $\delta\in(0,1/2)$ and Algorithm~\ref{alg:bdr}. Define
+\begin{equation}
+ N_\eps=\min\{n\ge1:2r_n\le\eps\}.
+\end{equation}
+On the common coverage event, BDR returns a selector with $R_\infty\le\eps$ after at most $mN_\eps$ trials and $mHN_\eps$ units of rollout work. Here
+\begin{equation}
+ N_\eps=O\!\left(\eps^{-2}\left[\log(m/\delta)+\log(1/\eps)\right]\right).
+\end{equation}
+For predictable same-action batches of size $B$, the trial bound becomes $m(N_\eps+B-1)$.
+\end{theorem}
+At an uncertified frontier, the selected candidate has width greater than $\eps$. All of its earlier trials reach this frontier because caps decrease. Once its total count reaches $N_\eps$, its frontier width cannot exceed $\eps$, so it cannot be selected again. The bound is worst-case, not an instance-optimality claim. The algorithm stores $O(mH)$ statistics and performs $O(mH)$ controller work per update; these costs are distinct from executed continuation work.
+
+\subsection{What capping changes, and what it does not}
+Define the \emph{matched full-horizon race} to use the same frontier, leader, challenger, and width rule, but execute every chosen trial to cap $H$ and use all resulting labels. Couple its trials to BDR by identical independent potential streams for each candidate and use identical tie-breaking.
+
+\begin{theorem}[Acquisition-preserving capping]\label{thm:coupling}
+On the common coverage event, BDR and the matched full-horizon race have the same frontier sequence, candidate sequence, trial counts, and stopping update. Their bands agree at every currently active deadline and below. For each paired trial, BDR executes no more work, so its total rollout work is no greater. The conclusion also holds for identical predictable batch sizes.
+\end{theorem}
+Additional full-horizon evidence can tighten retired-deadline bands, so the compiled schedules, regime counts, and realized regrets need not match. There is no accuracy-dominance claim. This comparison isolates capping from generic adaptive candidate selection: a comparison only against round-robin trials would mix the two effects. The comparator is an explicitly specified matched race, not a reproduction of a state-of-the-art algorithm-configuration package.
+
+\section{Compact policies can still require expensive evidence}
+\begin{theorem}[One regime does not imply horizon-free work]\label{thm:lower}
+Let $0<\eps\le1/8$ and $0<\delta<1/2$. There are two-candidate problems with an optimal one-regime selector such that any learner returning an $\eps$-optimal selector with probability at least $1-\delta$ in both problems must satisfy, in each problem,
+\begin{equation}\label{eq:lower}
+ \E[\text{rollout work}]\ge
+ \frac{H\,\kl(1-\delta,\delta)}{64\eps^2}.
+\end{equation}
+This statement also allows randomized deployed choices.
+\end{theorem}
+Both candidates have no success before $H$ and terminate at $H$. Their success probabilities at $H$ are $1/2+2\eps$ and $1/2-2\eps$, swapped across worlds. Shorter trials reveal no information. Standard bandit change of measure \citep{kaufmann2016} gives the result. Thus horizon-independent \emph{representation size} and horizon-independent \emph{trial count} do not imply horizon-independent work. We do not claim a lower bound matching all menu-size factors of Theorem~\ref{thm:racing}.
+
+\begin{proposition}[Unsupported tails]\label{prop:tail}
+Suppose $m\ge2$ and profiles are known exactly only through deadline $C<H$. With no assumptions beyond monotonicity, the minimax worst-case regret of a deterministic choice at any $b>C$ is $1-\max_iF_i(C)$.
+\end{proposition}
+Consequently, transfer within an observed horizon is different from extrapolation beyond it. Early certification of an unobserved tail is possible only when existing lower bounds are already sufficiently close to one or additional structure is available. The proposition concerns deterministic decisions under unrestricted tail completions; it is not a corresponding minimax formula for randomized mixtures.
+
+\section{Experiments}\label{sec:experiments}
+All experiments use CPUs, exact evaluators, and reproducible random seeds. No language-model API, GPU training, or private dataset is used. The purpose is to check the theory's mechanisms, test actual symbolic execution, and evaluate a small feature-generalization setting without presenting synthetic performance as LLM performance.
+
+\subsection{Fixed-menu certification and cost accounting}
+We use 24 menus from each of five families, six candidates, horizon $H=64$, accuracy $\eps=0.1$, confidence parameter $\delta=0.05$, and predictable batches of 32 trials. Crossing profiles combine fast unreliable and delayed reliable routes. Noncrossing profiles share a ranking. Saturated profiles contain a nearly certain fast candidate. Late-success profiles place all success at the final deadline. Symbolic menus are alternative routes in small acyclic Horn-rule proof systems under a fixed randomized backward-chaining policy. Missing rules produce immediate detectable failure. Full generators are supplied with the code. The late-success law is fixed across seeds; its 24 replicates vary continuation-sampling randomness.
+
+Exact success/failure hitting laws are obtained by dynamic programming on finite absorbing transition systems. Sampling from these laws accelerates Monte Carlo while exposing to the learner only the declared capped observation. Paired strategies use common per-candidate random streams. A separate rule-by-rule execution audit checks this simulator interface.
+
+\begin{table}[t]
+\centering\small
+\begin{tabular}{lrrrrr}
+\toprule
+Family & BDR work & Full work & RR work & Cap saving (\%) & $R_\infty$ \\
+\midrule
+% BEGIN AUTO TABLE cost
+Crossing & 304.5 & 392.0 & 785.2 & 22.3 & 0.0038 \\
+Noncrossing & 114.6 & 122.2 & 192.1 & 6.2 & 0.0058 \\
+Saturated & 15.4 & 50.4 & 95.1 & 69.4 & 0.0000 \\
+Late & 418.5 & 421.9 & 513.0 & 0.8 & 0.0000 \\
+Symbolic & 20.9 & 21.5 & 57.5 & 2.7 & 0.0006 \\
+% END AUTO TABLE cost
+\bottomrule
+\end{tabular}
+\caption{Mean rollout-step-equivalent work in thousands over 24 seeded replicates. Full is the matched full-horizon race; RR is full-horizon round-robin sampling. Cap saving is one minus the ratio of mean BDR to mean Full work. $R_\infty$ is BDR's mean worst-deadline regret. All 360 strategy--menu runs terminated with a certificate.}
+\label{tab:cost}
+\end{table}
+
+All 360 runs complete, with no observed false certificate and no failed final-band coverage check. These are empirical checks, not a claim that the error probability is zero. The $0.05$ confidence parameter is per run; paired and shared-menu runs are not independent replications for a binomial interval. BDR and the matched race have identical query counts in all paired cases, as predicted. Mean query counts are 12,392 (crossing), 16,439 (noncrossing), 1,443 (saturated), 6,592 (late), and 7,164 (symbolic).
+
+Capping's largest relative gain is on saturated profiles, where upper deadlines can be retired early. It saves 22.3\% on crossing profiles and just 0.8\% on late success. Paired bootstrap 95\% intervals, resampling the 24 menus within each family, are [19.0,26.2]\%, [4.6,8.3]\%, [65.6,72.6]\%, [0.77,0.84]\%, and [1.2,4.4]\% for the five table rows, respectively. These intervals describe these generated menus, not a population of natural-language tasks.
+
+\begin{figure}[t]
+\centering\includegraphics[width=.79\linewidth]{capping_cost.pdf}
+\caption{Capping-only work savings against the matched acquisition rule. Error bars are paired bootstrap intervals over menus. The late-success family provides an explicit negative control.}
+\label{fig:cost}
+\end{figure}
+
+\paragraph{An important accounting correction.} Treating every failed symbolic proof as active until the cap gives a 72.9\% apparent capping gain. That is a different continuation model, not the executable policy, which stops on a missing rule. Under the correct cost in \eqref{eq:work}, symbolic capping savings are 2.7\%. The stalled-failure measurement is retained as a labeled ablation rather than discarded. BDR still saves 63.6\% against round-robin symbolic sampling, but most of this gain is from adaptive candidate acquisition shared with the full-horizon comparator. This distinction prevents an inflated practical claim.
+
+\subsection{Learned critics on held-out symbolic programs}
+We separately fit five models per method using independently generated training sets. Each fit uses 160 training menus, 60 disjoint test menus, six candidates, $H=32$, and 128 trials per training prefix. The 12 observable symbolic features summarize the rule graph, including shortest proof length; they are privileged symbolic structure, not assumed available LLM representations. Whole programs, not traces, define the train/test split.
+
+We compare a terminal-success scalar, a budget-conditioned histogram-boosted regressor, and a discrete hazard regressor. Hyperparameters and training trials are held fixed. The budget feature has a monotonic constraint; hazard predictions induce a monotone CDF by a survival product. The compiler uses tolerance $\alpha=0.03$ on each predicted menu. All accuracy evaluation uses exact held-out hitting laws, never training labels.
+
+\begin{table}[t]
+\centering\small
+\begin{tabular}{lrrr}
+\toprule
+Method & Mean $R_\infty$ $\pm$ SE & Mean budget regret & Regimes \\
+\midrule
+% BEGIN AUTO TABLE learned
+Scalar & 0.6282 $\pm$ 0.0076 & 0.0971 & 1.00 \\
+Budget-conditioned & 0.1911 $\pm$ 0.0086 & 0.0105 & 2.34 \\
+Budget-conditioned + compression & 0.1868 $\pm$ 0.0087 & 0.0110 & 2.13 \\
+Hazard & 0.0660 $\pm$ 0.0095 & 0.0060 & 2.30 \\
+Hazard + compression & 0.0655 $\pm$ 0.0073 & 0.0064 & 2.11 \\
+% END AUTO TABLE learned
+\bottomrule
+\end{tabular}
+\caption{300 held-out menus across five independently fitted models. SE is computed over the five fit-level mean worst-deadline regrets, not over individual deadlines. Compression guarantees concern predicted profiles; no distribution-free certificate is claimed for new programs.}
+\label{tab:learned}
+\end{table}
+
+The standard hazard predictor is strongest among the tested predictors. Compression changes its mean worst-deadline regret from 0.0660 to 0.0655 and average regret from 0.0060 to 0.0064, while reducing regimes from 2.30 to 2.11. The small worst-regret decrease is not presented as a statistically established accuracy improvement. This is a modest decision-compression result, not neural model compression. Each training fit uses 122,880 labeled continuations and 436,991--457,609 actual rule-step-equivalent units after early terminal failure is accounted for.
+
+With repeated samples of known candidates, a saturated empirical hazard estimator equals the empirical CDF algebraically (Appendix~\ref{app:hazard}); the maximum observed floating-point difference is $1.11\times10^{-16}$. We explicitly harmonize tied decisions for these equivalent baselines. Thus a claimed improvement over an ``empirical survival'' baseline due only to parameterization or floating-point ties would be misleading.
+
+\subsection{Independent finite checks and executable proofs}
+The test suite passes 133 cases. Separate exhaustive checks compare the compiler with an independent dynamic program on 16,807 feasibility matrices; verify 14,700 monotone-pair/tolerance cases; and enumerate 500 band rectangles for the robust certificate. All 32,007 checks pass. They support implementation correctness but are not substitutes for the mathematical proofs.
+
+We also execute 245,760 actual randomized backward-chaining rollouts across ten programs and six candidate routes, using 937,338 attempted rule applications. The maximum empirical-CDF discrepancy from exact dynamic programming is 0.01701, below a simultaneous 99\% DKW threshold of 0.03386; no arm violates the threshold. A successful rule-by-rule trace is included. These are genuine executions of the small symbolic policy, not LLM reasoning trajectories.
+
+\section{Related work and limits}
+Process supervision \citep{lightman2023}, test-time scaling \citep{snell2024}, and budget-aware value tree search \citep{li2026budget} motivate intermediate decision values. Reliability-aware process rewards and distributional process reward models quantify uncertainty in future success \citep{li2026reliability,ma2026distributional}; our deadline profiles concern when success arrives. Survival value learning already connects time-to-goal distributions, hazards, and censored observations \citep{tiofack2026}, so those are explicitly baselines rather than novelty claims.
+
+Runtime-preference and utilitarian-configuration work is especially close: bounded runtime utilities, adaptive caps, and best-arm sampling are established \citep{graham2023preferences,graham2023utilitarian,graham2025practical}. Deadline utility $\ind\{T\le b\}$ is a special case. Our stated objective is to return a compact decision schedule uniformly over all deadlines, with backward eligibility and an acquisition-preserving comparison. A comprehensive comparison against the latest practical configuration methods remains necessary before a strong priority or empirical superiority claim. Structured best-arm identification is another relevant abstraction \citep{huang2017}; our concentration and change-of-measure tools are standard \citep{massart1990,kaufmann2016}.
+
+The central limitations are structural. Menus and continuation policies are fixed; arbitrary restart/replan strategies need action-dependent counterfactual models. Exact retained verification is needed for monotonicity. Proof graphs are small and observable. Certificates apply to repeatedly sampled known candidates, whereas learned-critic results are predictive checks on a specified generator. The compiler's memory saving is limited to deployed menu schedules; the learner retains a full table of bands. Reported work savings omit controller arithmetic, feature extraction, and prefix construction. Finally, there is no instance-optimal acquisition theorem and no general empirical demonstration on language models.
+
+\section{Conclusion}
+Budget-transferable reasoning decisions can be much simpler than exact success profiles: a deterministic $\eps$-optimal menu selector needs only $O(1/\eps)$ regimes. Yet learning that small decision object can still demand full-horizon evidence. Exact robust compilation and backward deadline racing make this separation operational. The experiments support the predicted mechanisms while showing that capping gains are workload- and accounting-dependent. The useful research object is not merely a richer process score, but a precise relationship between deadline-dependent decisions, credible evidence, and executed computation.
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+\clearpage
+\appendix
+\section{Proofs for representation results}
+\subsection{Proof of Proposition~\ref{prop:ranking}}
+For a fixed full menu, a constant selection $i$ is optimal for all deadlines exactly when $i$ belongs to every maximizing set. For the all-submenus statement, restrict attention to any two candidates. Whichever is ranked higher must weakly dominate the other at every deadline. Necessity follows. Conversely, pointwise dominance is transitive; if each pair is comparable, it is a total preorder. Break ties between identical profiles arbitrarily to obtain a total order. The highest-ranked element of any submenu then dominates every element of that submenu.
+
+For the crossing pair, selecting candidate 1 incurs regret $d_2$ at the second deadline, and selecting candidate 2 incurs $d_1$ at the first. If a constant mixture selects candidate 1 with probability $p$, the two regrets are $(1-p)d_1$ and $pd_2$. Equalizing them gives $p=d_1/(d_1+d_2)$ and value $d_1d_2/(d_1+d_2)$. These statements concern the two specified deadlines; additional deadlines can increase the worst-case regret. \qed
+
+\subsection{Proof of Theorem~\ref{thm:complexity}}
+Initialize at deadline $t_0=1$ with $i_0\in\argmax_iF_i(t_0)$. If candidate $i_k$ later becomes more than $\eps$-suboptimal, let $t_{k+1}$ be the first such deadline and select an envelope maximizer $i_{k+1}$ there. Until the next switch, regret is at most $\eps$. At a switch,
+\begin{align}
+ E(t_{k+1})&>F_{i_k}(t_{k+1})+\eps\\
+ &\ge F_{i_k}(t_k)+\eps=E(t_k)+\eps.
+\end{align}
+There can be at most $\lfloor1/\eps\rfloor$ such strict increases within $[0,1]$, giving the stated safe upper bound on regimes, also bounded by $H$.
+
+For the lower bound let $K=\min\{H,\lfloor1/(2\eps)\rfloor\}$. Initialize two profiles at zero. At deadline $j=1,\ldots,K$, raise candidate 1 if $j$ is odd and candidate 2 if $j$ is even to $2\eps j$, and retain the other candidate's previous value. Both profiles are nondecreasing and at most one. At each such deadline the new leader has margin $2\eps>\eps$, forcing its deterministic selection. The leader changes at every step, requiring $K$ regimes. Keep profiles constant after $K$ and put residual mass at $T=\infty$ to obtain valid success-time laws. \qed
+
+\subsection{Proof of Proposition~\ref{prop:transfer}}
+For each deadline, let $i^*\in\argmax_iF_i(b)$. Then
+\begin{align}
+ F_{i^*}(b)-F_{\widehat\sigma(b)}(b)
+ &\le \widehat F_{i^*}(b)-\widehat F_{\widehat\sigma(b)}(b)+2\eta\\
+ &\le \max_i\widehat F_i(b)-\widehat F_{\widehat\sigma(b)}(b)+2\eta
+ \le\alpha+2\eta.
+\end{align}
+Taking the maximum over deadlines proves the result. \qed
+
+\section{Proof of the certificate and compiler}\label{app:compiler}
+For any admissible profile, a selected candidate has value at least $L_i(b)$ and any competitor has value at most its upper bound. This proves the upper bound in \eqref{eq:gap}. To attain it when it is positive, choose the full profile of candidate $i$ to be $L_i$ and that of a maximizing competitor $j$ to be $U_j$. Choose any admissible profiles for the remaining candidates. Since the bands are themselves monotone, these are valid finite-horizon CDFs and can be extended by residual mass at infinity. The zero case follows because self-comparison always gives regret zero. For a fixed selector, the supremum over profiles and maximum over finitely many deadlines commute, so the pointwise exactness gives its exact worst regret.
+
+For compilation, write $S_b=\{i:g_i(b)\le\eps\}$. An interval $[a,d]$ can use one candidate exactly when $\bigcap_{b=a}^dS_b\ne\varnothing$. Let $d$ be the farthest such endpoint from the current start $a$. Every feasible first interval in any competing partition ends no later than $d$. Replace the competing partition's prefix through $d$ by the greedy interval. Delete wholly covered intervals; if $d$ splits a remaining interval, restrict that interval to its suffix, which is still feasible with its old label. The number of intervals does not increase. Apply the same exchange argument inductively to the suffix. This proves minimum cardinality. Maintaining an $m$-entry intersection takes $O(m)$ time per deadline and $O(mH)$ total.
+
+For the margin refinement, let $M_i=(L_i+U_i)/2$, with $U_i-L_i\le w<\eps$. At a deadline where candidate $i$ is $\alpha$-optimal for $M$, every $j\ne i$ satisfies
+\[
+ U_j-L_i=(M_j-M_i)+(U_j-M_j)+(M_i-L_i)\le\alpha+w.
+\]
+Taking $\alpha=\eps-w$ and applying the lazy construction to the monotone midpoint profiles gives a certified $O(1/(\eps-w))$-regime schedule. Without a positive margin this bound need not apply. \qed
+
+\section{Confidence, stopping, and coupling proofs}
+\subsection{Exact update equations}
+At an update let $\ell_i(b)=\max\{0,\widehat F_i(b)-r_{n_i(b)}\}$ and $u_i(b)=\min\{1,\widehat F_i(b)+r_{n_i(b)}\}$, with $\ell=0,u=1$ at zero counts. For the updated candidate, the implementation applies
+\begin{align}\label{eq:closures}
+ L_i^{\rm new}(b)&=\max_{a\le b}\max\{L_i^{\rm old}(a),\ell_i(a)\},\\
+ U_i^{\rm new}(b)&=\min_{a\ge b}\min\{U_i^{\rm old}(a),u_i(a)\}.
+\end{align}
+Unchanged candidates retain their bands. If $L>U$ numerically, the implementation aborts rather than issuing a certificate. On the coverage event this does not occur. Implementation tolerances are $10^{-12}$ for feasibility and $10^{-10}$ for empty-band detection; claims are exact-arithmetic statements up to these stated numerical allowances in code.
+
+\subsection{Proof of Lemma~\ref{lem:prefix}}
+Each update only increases $L$ and decreases $U$, so every $g_i(b)$ is nonincreasing over updates. Therefore a certified deadline stays certified. The largest uncertified deadline, and hence every declared cap in Algorithm~\ref{alg:bdr}, is nonincreasing.
+
+Fix candidate $i$ and deadline $b$. In its potential independent sequence, some initial number of trials have cap at least $b$; all later trials have smaller caps, if they occur. Hence the eligible observations are precisely $T_{i,1},\ldots,T_{i,n_i(b)}$ evaluated at $b$. Their prefix length can be random and data-dependent, but a uniform event over all deterministic prefix lengths covers this selection.
+
+For one candidate and $n\ge1$, standard DKW--Massart concentration gives
+\[
+ \Pp\left(\sup_b|\widehat F_{i,n}(b)-F_i(b)|>r_n\right)
+ \le2e^{-2nr_n^2}=\frac{6\delta}{\pi^2mn^2}.
+\]
+For this finite-horizon purpose, replace every $T>H$ by $H+1$; the usual real-valued empirical-CDF inequality then applies unchanged. Summing the displayed bound over $i\in[m]$ and $n\ge1$ gives $\delta$. This single event covers every eligible-prefix estimate at all deadlines and all times, regardless of adaptive candidate choices. If raw and previous bounds cover a monotone $F_i$, each operation in \eqref{eq:closures} preserves coverage. \qed
+
+\paragraph{Why outcome-selective pooling is excluded.} A success observed at a short cap also implies success at larger deadlines, whereas an unfinished failure does not reveal those labels. Adding only the convenient successful observations to long-deadline denominators changes the sampling distribution. BDR discards both types above the declared cap. Known terminal failures could be exploited with a different carefully specified estimator, but that is not part of this guarantee.
+
+\subsection{Proof of Theorem~\ref{thm:racing}}
+At an unresolved frontier $c$, every candidate has $g_i(c)>\eps$. Let $p$ be the lower leader and $q$ its upper challenger. Then
+\[
+ U_q(c)-L_p(c)>\eps,
+ \qquad L_p(c)\ge L_q(c),
+\]
+so $U_q(c)-L_q(c)>\eps$. The chosen member of $\{p,q\}$ has width at least this large. Since all previously declared caps were at least $c$, every previous trial of the chosen candidate is eligible there. Its band width is at most $2r_n$, where $n$ is its total trial count. The radius decreases for $m\ge2,\delta<1/2,n\ge1$, because differentiating $\log(An^2)/(2n)$ gives a nonpositive derivative when $\log(An^2)\ge2$, and here $A=\pi^2m/(3\delta)>e^2$.
+
+Thus a candidate with $n\ge N_\eps$ cannot be selected at an unresolved frontier. After at most $mN_\eps$ trials no unresolved frontier can remain. On coverage, Theorem~\ref{thm:compiler} makes the returned policy $\eps$-optimal. Each trial costs at most $H$, proving the work bound. Solving the radius inequality yields the stated big-$O$ expression. In a predictable block of $B$ trials, a candidate can overshoot the threshold by at most $B-1$ before the next decision, giving the batch bound. The case $m=1$ needs no data and is handled directly. \qed
+
+\subsection{Proof of Theorem~\ref{thm:coupling}}
+Work on the event where both systems' bands contain the true profiles; the preceding prefix argument and the all-prefix DKW event cover both simultaneously under the coupling. Initially all bands are equal. We prove inductively that at the start of a paired update the frontiers and all bands at or below the common frontier $c$ agree, and the per-candidate numbers of trials are identical. They therefore choose the same candidate using the same tie rule.
+
+For this candidate, all earlier BDR caps were at least $c$. Consequently both systems use the same complete prefix of its potential success-time sequence at every $b\le c$, and their new raw bounds there agree. Lower closures involve only $a\le b$, so they also agree. A possible discrepancy in upper closure could arise only from a full-horizon raw upper bound at $a>c$. But in the full race the new sample count $n$ is the same at every deadline. Monotonicity of its empirical CDF implies
+\[
+ u^{\rm Full}_i(a)=\min\{1,\widehat F_{i,n}(a)+r_n\}
+ \ge \min\{1,\widehat F_{i,n}(c)+r_n\}=u^{\rm BDR}_i(c).
+\]
+Thus new tail information cannot tighten a bound at or below $c$ beyond the identical raw bound already supplied at $c$. Old tail information was already propagated into the old bound at $c$ by the preceding upper closure. In BDR, tail deadlines retain their old eligible samples and bounds. Hence the updated upper bands also agree at $b\le c$.
+
+Previously retired deadlines stay certified in both systems. At and below $c$, certificates are identical after this update. The next largest uncertified deadline is therefore identical, or both stop. This proves the induction and acquisition equality. For a paired latent termination time $A$, the executed costs satisfy $\min\{A,c\}\le\min\{A,H\}$, even when $A$ is an early terminal failure. Summing gives pathwise work dominance. A predictable block is treated as a single update with the same number of coupled samples, so the argument is unchanged. Retired bands can differ, explaining why final compiled schedules need not coincide. \qed
+
+\section{Learning-cost and extrapolation proofs}
+\subsection{Proof of Theorem~\ref{thm:lower}}
+Set $p_+=1/2+2\eps$ and $p_-=1/2-2\eps$. In world $+$, candidates 1 and 2 have success probabilities $p_+,p_-$ at $H$; in world $-$ these are swapped. All success and unsuccessful termination occur at exactly $H$. A query with cap smaller than $H$ therefore reports identical no-success observations in both worlds and yields zero information. Each cap-$H$ query costs $H$ and reports a Bernoulli outcome.
+
+Let $N_H$ be the number of informative queries. The KL divergence of either swapped Bernoulli pair is
+\[
+ d=\KL(\operatorname{Ber}(p_+)\Vert\operatorname{Ber}(p_-))
+ =4\eps\log\frac{1+4\eps}{1-4\eps}\le64\eps^2,
+\]
+using $4\eps\le1/2$ and $\log((1+x)/(1-x))\le4x$ on this range. At $H$, the candidate gap is $4\eps$. A returned randomized decision with regret at most $\eps$ must assign at least $3/4$ probability to the correct candidate. Thus the event that the returned decision assigns majority mass to candidate 1 has probability at least $1-\delta$ in world $+$ and at most $\delta$ in world $-$.
+
+Applying the standard adaptive-experiment change-of-measure inequality \citep[ Lemma 1]{kaufmann2016} gives $\E_+[N_H]d\ge\kl(1-\delta,\delta)$, and the swapped argument gives the same in world $-$. Infinite expected stopping cost already satisfies the claimed bound; otherwise the usual finite-expectation stopping argument applies. Since total work is at least $HN_H$, \eqref{eq:lower} follows. A constant choice of the better candidate is optimal at every deadline because all candidates tie before $H$, so an optimal one-regime selector exists in each world. \qed
+
+\subsection{Proof of Proposition~\ref{prop:tail}}
+Choosing a candidate maximizing $F_i(C)$ guarantees future value at least $\max_iF_i(C)$, while every competitor is at most one. This gives regret at most $1-\max_iF_i(C)$. Conversely, after any deterministic choice $i$, extend its profile constantly at $F_i(C)$ and extend another candidate to probability one by the target deadline. Both are admissible monotone completions. The resulting regret is $1-F_i(C)$, at least the stated minimax value. \qed
+
+\section{Empirical hazard identity}\label{app:hazard}
+For $n$ common-cap trials, let $d_t$ be the number of first successes exactly at step $t$ and let $r_t=n-\sum_{u<t}d_u$ be the success-time risk set, including trajectories known never to succeed. The saturated discrete hazard MLE is $\widehat h_t=d_t/r_t$ when $r_t>0$. The induced survival probability telescopes:
+\[
+ \prod_{t=1}^b(1-\widehat h_t)
+ =\prod_{t=1}^b\frac{n-\sum_{u\le t}d_u}{n-\sum_{u<t}d_u}
+ =1-\frac{\sum_{t\le b}d_t}{n}.
+\]
+After an empty risk set, survival is already zero. Consequently the induced CDF is exactly the empirical CDF. This algebra assumes common-cap complete labels through the horizon; it is not a general claim equating all censored survival estimators. Learned hazard models share information through features and therefore need not agree with direct CDF regression.
+
+\section{Additional experimental details and reproducibility}
+\paragraph{Finite symbolic systems.} An unproved-goal tuple is the continuation state. At each step the policy chooses uniformly among rules for the first goal, replaces it with that rule's antecedents, and retains the other goals. An empty rule body proves the current goal; an empty goal tuple is success; a goal with no rules causes terminal failure. Rule indices decrease along dependencies, ensuring acyclicity. Repeated subgoals are not memoized. A common goal's initial alternative routes define the six candidates. Exact laws are computed on the resulting absorbing Markov chain. These small graphs admit exact dynamic programming, so learned critics here are controlled stress tests, not evidence that learning outperforms an exact solver. The law-equivalent sampler hides its CDFs from the learning interface, and the executable audit checks its target distribution independently.
+
+\paragraph{Predictive baselines.} All learned regressors use 100 histogram boosting iterations, at most 15 leaves per tree, learning rate 0.08, $\ell_2$ regularization 1, and no early stopping. Features are log-transformed. The budget feature is $\log(1+b)/\log(1+H)$. The direct-budget regressor constrains that feature monotonically. Hazard regression uses empirical hazard fractions with risk-set weights and clipped predictions. Training programs and held-out programs have disjoint generator seeds. Evaluation averages over all integer deadlines in the declared horizon. We do not call an interior held-out budget an extrapolation experiment: a full trial already gives labels at all earlier budgets. No beyond-horizon learned-prediction claim is made.
+
+\paragraph{Negative controls and caveats.} In the noncrossing family the true scalar ordering suffices, but estimating it from only final-deadline success can be poor when probabilities saturate and tie. This is an estimation issue, separate from the structural crossing obstruction. In the late family every informative trial reaches $H$, reproducing the cost-lower-bound mechanism. In symbolic tasks early unsuccessful termination eliminates most capping-only work savings. Compression may increase average regret while reducing the number of regimes, and finite-run worst-regret improvements are not asserted to be significant.
+
+\begin{figure}[p]
+\centering\includegraphics[width=.78\linewidth]{cost_accounting.pdf}
+\caption{Accounting sensitivity on the same symbolic success laws. A stalled-failure cost model would report 72.9\% capping savings; the executed terminal-failure policy yields 2.7\%. The latter is the main result. The former is preserved only as an explicitly labeled alternative-policy ablation.}
+\end{figure}
+\begin{figure}[p]
+\centering\includegraphics[width=.78\linewidth]{learned_critics.pdf}
+\caption{Held-out symbolic prediction and decision compression. Error bars summarize independent fit-level mean worst-deadline regrets. The existing hazard model is the strongest tested predictive baseline.}
+\end{figure}
+\begin{figure}[p]
+\centering\includegraphics[width=.78\linewidth]{compression.pdf}
+\caption{Exact-profile decision compression across the generated families. These empirical regime counts need not approach the worst-case upper bound; easy menus can have a constant best choice.}
+\end{figure}
+\begin{figure}[p]
+\centering\includegraphics[width=.78\linewidth]{certification_trace.pdf}
+\caption{One paired crossing-menu trace. The backward cap/frontier retires deadlines monotonically; matched full-horizon sampling makes the same acquisition decisions but may execute additional tail work.}
+\end{figure}
+
+\paragraph{Reproduction.} The repository contains modules for profile operations, interval compilation, racing, finite symbolic systems, five experiment scripts, raw CSV/JSON outputs, and tests. From the repository root, install the package and test dependencies, run \texttt{make experiments}, then \texttt{make test} and \texttt{make paper}. Python 3.13.5, NumPy 2.3.5, SciPy 1.17.0, and scikit-learn 1.8.0 were used for the recorded runs. On the execution container, the main fixed-menu suite took 23.6 seconds and the five learned fits took 5.3 seconds; these are measured container times, not predictions for another laptop. Metadata and full commands are included. No font files are distributed.
+
+\paragraph{Research status.} This is a substantive research draft with completed self-contained proofs and reproducible experiments, not an independently certified or submitted manuscript. The main outstanding checks are an independent proof and novelty audit against runtime-utility configuration, a stronger natural reasoning or algorithm-configuration evaluation, and a decision on whether the fixed-menu contribution is sufficient without a feature-transfer theorem. Numerical tests cannot certify novelty or replace external mathematical review.
+\end{document}

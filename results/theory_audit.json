@@ -1,0 +1,7 @@
+{
+  "exhaustive_feasibility_matrices": 16807,
+  "monotone_pair_epsilon_checks": 14700,
+  "enumerated_band_rectangles": 500,
+  "failures": 0,
+  "runtime_seconds": 2.4823573869998654
+}

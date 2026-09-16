@@ -1,0 +1,8 @@
+{
+  "actual_rule_by_rule_rollouts": 245760,
+  "actual_rule_applications": 937338,
+  "maximum_cdf_error": 0.01700846354166663,
+  "simultaneous_99_percent_dkw_bound": 0.03386096833895663,
+  "bound_violations": 0,
+  "runtime_seconds": 1.6910127440000906
+}

@@ -1,0 +1,23 @@
+{
+  "config": {
+    "seeds": 24,
+    "horizon": 64,
+    "epsilon": 0.1,
+    "batch": 32
+  },
+  "families": [
+    "crossing",
+    "noncrossing",
+    "saturated",
+    "late",
+    "symbolic"
+  ],
+  "python": "3.13.5",
+  "numpy": "2.3.5",
+  "runtime_seconds": 23.420471232999944,
+  "menus": 120,
+  "certified_runs": 360,
+  "invalid_certificates": 0,
+  "simultaneous_final_band_failures": 0,
+  "hazard_ecdf_max_abs_difference": 1.1102230246251565e-16
+}

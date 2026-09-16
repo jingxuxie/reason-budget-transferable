@@ -1,0 +1,10 @@
+__pycache__/
+.pytest_cache/
+*.pyc
+*.egg-info/
+.venv/
+paper/*.aux
+paper/*.blg
+paper/*.log
+paper/*.out
+paper/*.toc

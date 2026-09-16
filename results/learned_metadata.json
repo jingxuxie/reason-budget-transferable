@@ -1,0 +1,44 @@
+{
+  "config": {
+    "seeds": 5,
+    "train_menus": 160,
+    "test_menus": 60
+  },
+  "horizon": 32,
+  "arms": 6,
+  "rollouts_per_training_prefix": 128,
+  "seed_details": [
+    {
+      "seed": 0,
+      "training_rollout_steps": 436991,
+      "max_training_states": 66,
+      "max_test_states": 62
+    },
+    {
+      "seed": 1,
+      "training_rollout_steps": 441394,
+      "max_training_states": 62,
+      "max_test_states": 88
+    },
+    {
+      "seed": 2,
+      "training_rollout_steps": 451531,
+      "max_training_states": 52,
+      "max_test_states": 75
+    },
+    {
+      "seed": 3,
+      "training_rollout_steps": 440900,
+      "max_training_states": 83,
+      "max_test_states": 70
+    },
+    {
+      "seed": 4,
+      "training_rollout_steps": 457609,
+      "max_training_states": 111,
+      "max_test_states": 74
+    }
+  ],
+  "runtime_seconds": 4.927281679999851,
+  "note": "Symbolic features and histogram boosted regressors; no LLM or unseen-program certification."
+}

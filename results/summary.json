@@ -1,0 +1,123 @@
+{
+  "certification": [
+    {
+      "family": "crossing",
+      "backward_cost": 304511.75,
+      "full_cost": 391961.9583333333,
+      "uniform_cost": 785172.5,
+      "capping_saving": 0.2231089177765656,
+      "capping_ci": [
+        0.19026461655301333,
+        0.26194039915538314
+      ],
+      "total_saving": 0.6121721659890025,
+      "backward_queries": 12392.0,
+      "full_queries": 12392.0,
+      "worst_regret": 0.003762295890230536,
+      "regimes": 4.041666666666667
+    },
+    {
+      "family": "noncrossing",
+      "backward_cost": 114616.33333333333,
+      "full_cost": 122157.125,
+      "uniform_cost": 192090.25,
+      "capping_saving": 0.061730264744415564,
+      "capping_ci": [
+        0.045546773576613936,
+        0.0825661679984805
+      ],
+      "total_saving": 0.40332040104412725,
+      "backward_queries": 16438.666666666668,
+      "full_queries": 16438.666666666668,
+      "worst_regret": 0.00582820509828622,
+      "regimes": 1.625
+    },
+    {
+      "family": "saturated",
+      "backward_cost": 15406.75,
+      "full_cost": 50358.708333333336,
+      "uniform_cost": 95122.20833333333,
+      "capping_saving": 0.6940598655148191,
+      "capping_ci": [
+        0.6564335285586561,
+        0.7261896410220898
+      ],
+      "total_saving": 0.8380320403621131,
+      "backward_queries": 1442.6666666666667,
+      "full_queries": 1442.6666666666667,
+      "worst_regret": 0.0,
+      "regimes": 1.0
+    },
+    {
+      "family": "late",
+      "backward_cost": 418513.3333333333,
+      "full_cost": 421888.0,
+      "uniform_cost": 513024.0,
+      "capping_saving": 0.00799896338996764,
+      "capping_ci": [
+        0.007666982632856048,
+        0.008361318547804983
+      ],
+      "total_saving": 0.18422270043246847,
+      "backward_queries": 6592.0,
+      "full_queries": 6592.0,
+      "worst_regret": 0.0,
+      "regimes": 1.9583333333333333
+    },
+    {
+      "family": "symbolic",
+      "backward_cost": 20938.666666666668,
+      "full_cost": 21511.708333333332,
+      "uniform_cost": 57462.291666666664,
+      "capping_saving": 0.026638594098949864,
+      "capping_ci": [
+        0.012177692863881432,
+        0.04415362089761522
+      ],
+      "total_saving": 0.6356103096595955,
+      "backward_queries": 7164.0,
+      "full_queries": 7164.0,
+      "worst_regret": 0.0005715592135345227,
+      "regimes": 2.5
+    }
+  ],
+  "learned_critics": [
+    {
+      "method": "learned_scalar",
+      "worst_regret": 0.6282062757201646,
+      "worst_regret_se": 0.007588437352742828,
+      "mean_regret": 0.09705493092298648,
+      "regimes": 1.0
+    },
+    {
+      "method": "budget_conditioned",
+      "worst_regret": 0.19109854497354495,
+      "worst_regret_se": 0.008622553875012425,
+      "mean_regret": 0.01050821897045855,
+      "regimes": 2.3366666666666664
+    },
+    {
+      "method": "budget_conditioned_compressed",
+      "worst_regret": 0.1867550705467372,
+      "worst_regret_se": 0.008706138461342034,
+      "mean_regret": 0.011018782609494413,
+      "regimes": 2.1266666666666665
+    },
+    {
+      "method": "hazard",
+      "worst_regret": 0.06600404174015284,
+      "worst_regret_se": 0.009460526031065368,
+      "mean_regret": 0.005977671682098763,
+      "regimes": 2.3033333333333332
+    },
+    {
+      "method": "hazard_compressed",
+      "worst_regret": 0.06552197236919456,
+      "worst_regret_se": 0.007254355443437373,
+      "mean_regret": 0.0063842661485890625,
+      "regimes": 2.1133333333333333
+    }
+  ],
+  "symbolic_stalled_capping_saving": 0.7293978435769088,
+  "interpretation": "Capping saves work but not rollout count against the matched race. Symbolic savings are small after terminal failure is charged correctly. Learned hazard is the strongest tested predictive baseline; compression is not a new predictor."
+}

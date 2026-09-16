@@ -1,0 +1,11 @@
+{
+  "python": "3.13.5",
+  "numpy": "2.3.5",
+  "scipy": "1.17.0",
+  "sklearn": "1.8.0",
+  "matplotlib": "3.10.8",
+  "pytest": "9.0.2",
+  "threads": 1,
+  "hardware_note": "CPU-only execution container; no laptop runtime claim",
+  "date": "2026-09-16"
+}
